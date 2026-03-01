@@ -1,0 +1,103 @@
+{
+  "id": "77772213-0256-4f41-a554-beb4a7a011ad",
+  "prevId": "d86b8953-7173-40a8-9995-26070d6782af",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.ledger": {
+      "name": "ledger",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "ledger_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "Month": {
+          "name": "Month",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "Pay_Period": {
+          "name": "Pay_Period",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "Category": {
+          "name": "Category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "Amount": {
+          "name": "Amount",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "Status": {
+          "name": "Status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "Due": {
+          "name": "Due",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "Notes": {
+          "name": "Notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "Year": {
+          "name": "Year",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "Bank": {
+          "name": "Bank",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
