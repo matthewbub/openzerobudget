@@ -1,55 +1,45 @@
 import { db } from "./index";
-// import ledgerRows from "./ledger.json";
-import { ledgerTable } from "./schema";
+import { zeroBudgetEntriesTable } from "./schema";
 
-// If you want to load from a JSON file, uncomment the import above and make sure to create a ledger.json file with the appropriate structure. For now, we'll use hardcoded data for seeding.
 const ledgerRows = [
-  {
-    Month: "January",
-    Pay_Period: "1-15",
-    Category: "Rent",
-    Amount: "2200",
-    Status: "Paid",
-    Due: "2026-01-01",
-    Notes: "Paid via bank transfer",
-    Year: "2024",
-    Bank: "Bank of America",
-  },
+  ["March", "1st", "Audible", "-$14.95", "Paid"],
+  ["March", "1st", "SoCal Gas", "-$62.59", "Pending"],
+  ["March", "1st", "Edison", "-$118.63", "Late"],
+  ["March", "1st", "Emergey Fund", "-$287.14", "Not Paid"],
+  ["March", "1st", "Savings Home", "-$200.00", "Pending"],
+  ["March", "1st", "Frontier", "-$39.00", "Not Paid"],
+  ["March", "1st", "AAA", "-$120.00", "Paid"],
+  ["March", "1st", "Weed", "-$100.00", "Not Paid"],
+  ["March", "1st", "Pets", "-$50.00", "Paid"],
+  ["March", "1st", "Food", "-$200.00", "Not Paid"],
+  ["March", "1st", "Rent (Mat)", "-$1,550.53", "Paid"],
+  ["March", "1st", "Tax Return (Mat)", "$292.48", "Income"],
+  ["March", "1st", "Income", "$2,335.41", "Income"],
+  ["March", "1st", "Pre-Rent Savings", "$100.00", "Income"],
 ] as const;
 
-type LedgerRow = {
-  Month: string;
-  Pay_Period: string;
-  Category: string;
-  Amount: string;
-  Status: string;
-  Due: string;
-  Notes: string;
-  Year: string;
-  Bank: string;
-};
-
 async function main() {
-  const rowsToInsert: (typeof ledgerTable.$inferInsert)[] = (
-    ledgerRows as LedgerRow[]
-  ).map((row) => ({
-    month: row.Month,
-    payPeriod: row["Pay_Period"],
-    category: row.Category,
-    amount: row.Amount,
-    status: row.Status,
-    due: row.Due,
-    notes: row.Notes,
-    year: row.Year,
-    bank: row.Bank,
-  }));
+  const rowsToInsert: (typeof zeroBudgetEntriesTable.$inferInsert)[] =
+    ledgerRows.map(([month, payPeriod, category, amount, status]) => ({
+      month,
+      payPeriod,
+      category,
+      amount,
+      status,
+      due: "",
+      notes: "",
+      year: "2026",
+      bank: "",
+    }));
 
   if (rowsToInsert.length === 0) {
-    console.log("No ledger rows found in JSON. Nothing was inserted.");
+    console.log("No ledger rows found. Nothing was inserted.");
     return;
   }
 
-  await db.insert(ledgerTable).values(rowsToInsert);
+  // Keep the seed repeatable; reruns won't duplicate rows.
+  await db.delete(zeroBudgetEntriesTable);
+  await db.insert(zeroBudgetEntriesTable).values(rowsToInsert);
   console.log(`Seed complete: inserted ${rowsToInsert.length} ledger rows.`);
 }
 

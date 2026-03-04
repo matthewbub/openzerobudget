@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 
 import { db } from '@/db';
-import { zeroBudgetEntriesTable } from '@/db/schema';
+import { zeroBudgetEntriesTable, zeroBudgetExpensesTable } from '@/db/schema';
 
 export async function GET(request: Request) {
   try {
@@ -19,19 +19,29 @@ export async function GET(request: Request) {
       category ? eq(zeroBudgetEntriesTable.category, category) : undefined,
     ].filter((value): value is NonNullable<typeof value> => Boolean(value));
 
-    const rows =
+    const matchingEntries =
       filters.length > 0
         ? await db
-            .select()
+            .select({ id: zeroBudgetEntriesTable.id })
             .from(zeroBudgetEntriesTable)
             .where(and(...filters))
-        : await db.select().from(zeroBudgetEntriesTable);
+        : await db.select({ id: zeroBudgetEntriesTable.id }).from(zeroBudgetEntriesTable);
 
-    return NextResponse.json(rows);
+    const entryIds = matchingEntries.map((entry) => entry.id);
+    if (entryIds.length === 0) {
+      return NextResponse.json([]);
+    }
+
+    const expenses = await db
+      .select()
+      .from(zeroBudgetExpensesTable)
+      .where(inArray(zeroBudgetExpensesTable.zeroBudgetEntryId, entryIds));
+
+    return NextResponse.json(expenses);
   } catch (error) {
-    console.error('Failed to fetch ledger rows:', error);
+    console.error('Failed to fetch ledger expenses:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch ledger data' },
+      { error: 'Failed to fetch ledger expenses' },
       { status: 500 },
     );
   }

@@ -15,6 +15,13 @@
       "when": 1772352934966,
       "tag": "0001_nebulous_namor",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1772519302734,
+      "tag": "0002_demonic_moira_mactaggert",
+      "breakpoints": true
     }
   ]
 }
