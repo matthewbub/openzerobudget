@@ -1,8 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { RiArrowUpLine } from "@remixicon/react"
 import { Label, Pie, PieChart } from "recharts"
+import { cn } from "@/lib/utils"
 
 import {
   ChartContainer,
@@ -12,73 +12,97 @@ import {
 } from "@/components/ui/chart"
 import { type ExpenseRow } from "@/lib/ledger-storage"
 
+const usdFormatter = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+})
+
+function parseCurrency(value: string | null): number {
+  if (!value) return 0
+  const normalized = value.replace(/[^0-9.-]/g, "")
+  const parsed = parseFloat(normalized)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
 type ChartPieDonutTextProps = {
+  budgetedAmount: number
   rows: ExpenseRow[]
 }
 
-export function ChartPieDonutText({ rows }: ChartPieDonutTextProps) {
-  const statusData = React.useMemo(() => {
-    const buckets = new Map<string, number>()
-
-    for (const row of rows) {
-      const label = row.status.trim() || "Unlabeled"
-      buckets.set(label, (buckets.get(label) ?? 0) + 1)
-    }
-
-    const source = buckets.size
-      ? Array.from(buckets.entries())
-      : [["No expenses", 1] as const]
-
-    return source.map(([label, value], index) => {
-      const key = `status${index + 1}`
-      return {
-        key,
-        label,
-        value,
-        fill: `var(--color-${key})`,
-      }
-    })
+export function ChartPieDonutText({ budgetedAmount, rows }: ChartPieDonutTextProps) {
+  const totalSpent = React.useMemo(() => {
+    return rows.reduce((sum, row) => sum + Math.abs(parseCurrency(row.amount)), 0)
   }, [rows])
 
-  const chartConfig = React.useMemo(() => {
-    return statusData.reduce<ChartConfig>(
-      (config, entry, index) => {
-        config[entry.key] = {
-          label: entry.label,
-          color: `var(--chart-${(index % 5) + 1})`,
-        }
-        return config
-      },
-      {
-        value: { label: "Expenses" },
-      }
-    )
-  }, [statusData])
+  const remaining = Math.max(budgetedAmount - totalSpent, 0)
+  const overBudget = totalSpent > budgetedAmount
+  const pctUsed = budgetedAmount > 0 ? Math.min((totalSpent / budgetedAmount) * 100, 100) : 0
 
-  const totalExpenses = rows.length
+  const chartData = React.useMemo(() => {
+    if (budgetedAmount <= 0 && totalSpent <= 0) {
+      return [{ key: "empty", label: "No budget", value: 1, fill: "var(--color-empty)" }]
+    }
+    if (overBudget) {
+      return [
+        { key: "spent", label: "Spent", value: budgetedAmount, fill: "var(--color-spent)" },
+        { key: "over", label: "Over budget", value: totalSpent - budgetedAmount, fill: "var(--color-over)" },
+      ]
+    }
+    const data = []
+    if (totalSpent > 0) {
+      data.push({ key: "spent", label: "Spent", value: totalSpent, fill: "var(--color-spent)" })
+    }
+    if (remaining > 0) {
+      data.push({ key: "remaining", label: "Remaining", value: remaining, fill: "var(--color-remaining)" })
+    }
+    if (data.length === 0) {
+      data.push({ key: "empty", label: "No budget", value: 1, fill: "var(--color-empty)" })
+    }
+    return data
+  }, [budgetedAmount, totalSpent, remaining, overBudget])
+
+  const chartConfig: ChartConfig = {
+    value: { label: "Amount" },
+    spent: { label: "Spent", color: "var(--chart-4)" },
+    remaining: { label: "Remaining", color: "var(--chart-1)" },
+    over: { label: "Over budget", color: "var(--destructive)" },
+    empty: { label: "No data", color: "var(--muted)" },
+  }
 
   return (
-    <div className="bg-muted/20 flex h-full flex-col rounded-xl p-4">
-      <div className="mb-3 text-center">
-        <h3 className="text-sm font-semibold">Expense Status</h3>
-        <p className="text-muted-foreground text-xs">Distribution for this budget row</p>
-      </div>
+    <div className="flex h-full flex-col">
       <div className="flex-1">
         <ChartContainer
-          className="mx-auto aspect-square max-h-[250px]"
+          className="mx-auto aspect-square max-h-[220px]"
           config={chartConfig}
         >
           <PieChart>
             <ChartTooltip
-              content={<ChartTooltipContent hideLabel />}
+              content={
+                <ChartTooltipContent
+                  hideLabel
+                  formatter={(value, name) => {
+                    const numVal = typeof value === "number" ? value : parseFloat(String(value))
+                    return (
+                      <span className="flex items-center gap-2">
+                        <span>{String(name)}</span>
+                        <span className="font-mono font-medium">{usdFormatter.format(numVal)}</span>
+                      </span>
+                    )
+                  }}
+                />
+              }
               cursor={false}
             />
             <Pie
-              data={statusData}
+              data={chartData}
               dataKey="value"
-              innerRadius={60}
+              innerRadius={55}
+              outerRadius={80}
               nameKey="label"
-              strokeWidth={5}
+              strokeWidth={2}
+              stroke="var(--background)"
             >
               <Label
                 content={({ viewBox }) => {
@@ -91,23 +115,25 @@ export function ChartPieDonutText({ rows }: ChartPieDonutTextProps) {
                         y={viewBox.cy}
                       >
                         <tspan
-                          className="fill-foreground text-3xl font-bold"
+                          className={cn(
+                            "text-2xl font-bold",
+                            overBudget ? "fill-destructive" : "fill-foreground",
+                          )}
                           x={viewBox.cx}
-                          y={viewBox.cy}
+                          y={(viewBox.cy || 0) - 6}
                         >
-                          {totalExpenses.toLocaleString()}
+                          {overBudget ? "-" : ""}{usdFormatter.format(overBudget ? totalSpent - budgetedAmount : remaining)}
                         </tspan>
                         <tspan
-                          className="fill-muted-foreground"
+                          className="fill-muted-foreground text-xs"
                           x={viewBox.cx}
-                          y={(viewBox.cy || 0) + 24}
+                          y={(viewBox.cy || 0) + 16}
                         >
-                          Expenses
+                          {overBudget ? "over budget" : "remaining"}
                         </tspan>
                       </text>
                     )
                   }
-
                   return null
                 }}
               />
@@ -115,12 +141,42 @@ export function ChartPieDonutText({ rows }: ChartPieDonutTextProps) {
           </PieChart>
         </ChartContainer>
       </div>
-      <div className="mt-3 flex flex-col gap-2 text-sm">
-        <div className="flex items-center gap-2 leading-none font-medium">
-          Trending up by 5.2% this month <RiArrowUpLine className="h-4 w-4" />
+
+      {/* Legend */}
+      <div className="flex flex-col gap-2 pt-2">
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-muted-foreground">Budgeted</span>
+          <span className="text-foreground font-medium tabular-nums font-sans">
+            {usdFormatter.format(budgetedAmount)}
+          </span>
         </div>
-        <div className="text-muted-foreground leading-none">
-          Showing status mix for logged expenses
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-muted-foreground">Spent</span>
+          <span className={cn(
+            "font-medium tabular-nums font-sans",
+            overBudget ? "text-destructive" : "text-foreground",
+          )}>
+            {usdFormatter.format(totalSpent)}
+          </span>
+        </div>
+        <div className="bg-border my-1 h-px" />
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-muted-foreground font-medium">
+            {overBudget ? "Over" : "Left"}
+          </span>
+          <span className={cn(
+            "font-semibold tabular-nums font-sans",
+            overBudget
+              ? "text-destructive"
+              : remaining < budgetedAmount * 0.1
+                ? "text-emerald-600 dark:text-emerald-400"
+                : "text-foreground",
+          )}>
+            {overBudget ? "-" : ""}{usdFormatter.format(overBudget ? totalSpent - budgetedAmount : remaining)}
+          </span>
+        </div>
+        <div className="text-muted-foreground text-xs tabular-nums">
+          {Math.round(pctUsed)}% of budget used
         </div>
       </div>
     </div>

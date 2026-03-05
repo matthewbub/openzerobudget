@@ -97,6 +97,20 @@ export async function getLedgerExpenses(
   return (await response.json()) as ExpenseRow[];
 }
 
+export type PayPeriod = {
+  year: string;
+  month: string;
+  payPeriod: string;
+};
+
+export async function getPayPeriods(): Promise<PayPeriod[]> {
+  const response = await fetch('/api/ledger/periods', { cache: 'no-store' });
+  if (!response.ok) {
+    throw new Error(`Failed to fetch pay periods (${response.status})`);
+  }
+  return (await response.json()) as PayPeriod[];
+}
+
 export async function getBudgetDetail(id: string): Promise<BudgetDetailResponse | null> {
   const trimmedId = id.trim();
   if (!trimmedId) {
