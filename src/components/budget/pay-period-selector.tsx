@@ -52,11 +52,11 @@ export function PayPeriodSelector({
   onSelect: (period: PayPeriod) => void;
 }) {
   const sorted = sortPeriods(periods);
-  const selectedKey = selected ? periodToKey(selected) : undefined;
+  const selectedKey = selected ? periodToKey(selected) : '';
 
   return (
     <Select
-      value={selectedKey}
+      value={selectedKey || ''}
       onValueChange={(key: string) => {
         const found = sorted.find((p) => periodToKey(p) === key);
         if (found) onSelect(found);
