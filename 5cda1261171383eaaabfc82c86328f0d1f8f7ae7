@@ -1,0 +1,43 @@
+src/app/budget/[id]/page.tsx
+  6fda261ac521d0db 212,214-216
+  e33f7c8a6793eae6 217-223
+src/lib/ledger-storage.ts
+  6fda261ac521d0db 30-37,42-45,160-177,179-182,232-292
+  e33f7c8a6793eae6 38-41,183-231
+src/components/budget/budget-expenses-panel.tsx
+  6fda261ac521d0db 3,7,31,33,49-52,58-63,71,76-78,82-90,92,97-114,116-149,180-181,272-275,283-286,290,293-304,311-314,322-325,333-334,340-346
+  e33f7c8a6793eae6 8-9,34,79,91,150-179,209,217,239-246,248-253,259,269,281,292,309,320,328
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "5cda1261171383eaaabfc82c86328f0d1f8f7ae7",
+  "prompts": {
+    "6fda261ac521d0db": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cbca5-0761-7ef3-98b7-a03edcbaa7ed",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "matéo! <6matbub@gmail.com>",
+      "messages": [],
+      "total_additions": 234,
+      "total_deletions": 10,
+      "accepted_lines": 226,
+      "overriden_lines": 0
+    },
+    "e33f7c8a6793eae6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cbce5-fe0b-7c63-8b78-081cf4160850",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "matéo! <6matbub@gmail.com>",
+      "messages": [],
+      "total_additions": 124,
+      "total_deletions": 21,
+      "accepted_lines": 118,
+      "overriden_lines": 0
+    }
+  }
+}
