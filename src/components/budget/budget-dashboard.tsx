@@ -49,12 +49,9 @@ function periodToKey(p: PayPeriod): string {
   return `${p.year}:${p.month}:${p.payPeriod}`;
 }
 
-function buildFilteredPath(row: LedgerRow): string | null {
-  if (!row.year || !row.month || !row.payPeriod || !row.category) return null;
-  const segments = [row.year, row.month, row.payPeriod, row.category].map(
-    (value) => encodeURIComponent(value),
-  );
-  return `/b/${segments.join('/')}`;
+function buildDetailPath(row: LedgerRow): string | null {
+  if (!row.id) return null;
+  return `/budget/${encodeURIComponent(row.id)}`;
 }
 
 function statusVariant(status: string | null) {
@@ -231,7 +228,7 @@ export function BudgetDashboard() {
                     </TableRow>
                   )}
                   {budgetRows.map((row) => {
-                    const path = buildFilteredPath(row);
+                    const path = buildDetailPath(row);
                     return (
                       <TableRow
                         key={row.id}
