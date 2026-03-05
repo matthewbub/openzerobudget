@@ -27,6 +27,22 @@ export type BudgetDetailResponse = {
   expenses: ExpenseRow[];
 };
 
+export type CreateBudgetExpenseInput = {
+  amount: string;
+  status: string;
+  dateSpent?: string;
+  notes?: string;
+  bank?: string;
+};
+
+export type UpdateBudgetExpenseStatusInput = {
+  status: string;
+};
+
+export type UpdateBudgetEntryInput = {
+  amount: string;
+};
+
 export type LedgerFilters = {
   year?: string;
   month?: string;
@@ -139,5 +155,140 @@ export async function getBudgetDetail(id: string): Promise<BudgetDetailResponse 
       ...payload.row,
       id: String(payload.row.id),
     },
+  };
+}
+
+export async function createBudgetExpense(
+  entryId: string,
+  input: CreateBudgetExpenseInput,
+): Promise<ExpenseRow> {
+  const trimmedId = entryId.trim();
+  if (!trimmedId) {
+    throw new Error('Missing budget entry id');
+  }
+
+  const response = await fetch(
+    `/api/ledger/${encodeURIComponent(trimmedId)}/expenses`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(input),
+    },
+  );
+
+  if (!response.ok) {
+    let errorMessage = `Failed to create expense (${response.status})`;
+    try {
+      const payload = (await response.json()) as { error?: string };
+      if (payload.error?.trim()) {
+        errorMessage = payload.error;
+      }
+    } catch {
+      // No-op: keep default error message if response is not JSON.
+    }
+    throw new Error(errorMessage);
+  }
+
+  const payload = (await response.json()) as ExpenseRow & {
+    id: string | number;
+    dateSpent: string | Date;
+  };
+  const dateSpent =
+    typeof payload.dateSpent === 'string'
+      ? payload.dateSpent
+      : new Date(payload.dateSpent).toISOString();
+
+  return {
+    ...payload,
+    id: String(payload.id),
+    dateSpent,
+  };
+}
+
+export async function updateBudgetExpenseStatus(
+  expenseId: string,
+  input: UpdateBudgetExpenseStatusInput,
+): Promise<ExpenseRow> {
+  const trimmedExpenseId = expenseId.trim();
+  if (!trimmedExpenseId) {
+    throw new Error('Missing expense id');
+  }
+
+  const response = await fetch(
+    `/api/ledger/expenses/${encodeURIComponent(trimmedExpenseId)}`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(input),
+    },
+  );
+
+  if (!response.ok) {
+    let errorMessage = `Failed to update expense (${response.status})`;
+    try {
+      const payload = (await response.json()) as { error?: string };
+      if (payload.error?.trim()) {
+        errorMessage = payload.error;
+      }
+    } catch {
+      // No-op: keep default error message if response is not JSON.
+    }
+    throw new Error(errorMessage);
+  }
+
+  const payload = (await response.json()) as ExpenseRow & {
+    id: string | number;
+    dateSpent: string | Date;
+  };
+  const dateSpent =
+    typeof payload.dateSpent === 'string'
+      ? payload.dateSpent
+      : new Date(payload.dateSpent).toISOString();
+
+  return {
+    ...payload,
+    id: String(payload.id),
+    dateSpent,
+  };
+}
+
+export async function updateBudgetEntry(
+  id: string,
+  input: UpdateBudgetEntryInput,
+): Promise<LedgerRow> {
+  const trimmedId = id.trim();
+  if (!trimmedId) {
+    throw new Error('Missing budget row id');
+  }
+
+  const response = await fetch(`/api/ledger/${encodeURIComponent(trimmedId)}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    let errorMessage = `Failed to update budget row (${response.status})`;
+    try {
+      const payload = (await response.json()) as { error?: string };
+      if (payload.error?.trim()) {
+        errorMessage = payload.error;
+      }
+    } catch {
+      // No-op: keep default error message if response is not JSON.
+    }
+    throw new Error(errorMessage);
+  }
+
+  const payload = (await response.json()) as LedgerRow & { id: string | number };
+  return {
+    ...payload,
+    id: String(payload.id),
   };
 }

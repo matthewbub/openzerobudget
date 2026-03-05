@@ -9,6 +9,8 @@ import { useRouter } from 'next/navigation';
 import {
   getPayPeriods,
   getLedgerRows,
+  getLedgerExpenses,
+  updateBudgetEntry,
   type LedgerRow,
   type PayPeriod,
 } from '@/lib/ledger-storage';
@@ -39,6 +41,15 @@ function parseCurrency(value: string | null): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function parseCurrencyInput(value: string): number | null {
+  const normalized = value.replace(/[^0-9.-]/g, '');
+  const parsed = Number.parseFloat(normalized);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return null;
+  }
+  return parsed;
+}
+
 const usdFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'USD',
@@ -57,25 +68,53 @@ function buildDetailPath(row: LedgerRow): string | null {
 function statusVariant(status: string | null) {
   if (!status) return 'outline' as const;
   const s = status.toLowerCase();
-  if (s === 'paid') return 'default' as const;
-  if (s === 'income') return 'secondary' as const;
-  if (s === 'late') return 'destructive' as const;
+  if (s === 'on budget') return 'default' as const;
+  if (s === 'under budget') return 'secondary' as const;
+  if (s === 'over budget') return 'destructive' as const;
   return 'outline' as const;
 }
 
-const budgetColumns: Array<{ key: keyof LedgerRow; label: string }> = [
+type BudgetColumnKey =
+  | 'category'
+  | 'amount'
+  | 'remaining'
+  | 'status'
+  | 'due'
+  | 'notes'
+  | 'bank';
+
+const budgetColumns: Array<{ key: BudgetColumnKey; label: string }> = [
   { key: 'category', label: 'Category' },
   { key: 'amount', label: 'Amount' },
+  { key: 'remaining', label: 'Remaining' },
   { key: 'status', label: 'Status' },
   { key: 'due', label: 'Due' },
   { key: 'notes', label: 'Notes' },
   { key: 'bank', label: 'Bank' },
 ];
 
+function getBudgetStatus(remaining: number): string {
+  const tolerance = 0.005;
+  if (remaining > tolerance) return 'Under Budget';
+  if (remaining < -tolerance) return 'Over Budget';
+  return 'On Budget';
+}
+
+function getEntrySpentTotal(
+  entryId: string,
+  expensesByEntryId: Map<string, number>,
+): number {
+  return expensesByEntryId.get(entryId) ?? 0;
+}
+
 export function BudgetDashboard() {
   const router = useRouter();
   const [selectedPeriod, setSelectedPeriod] = useState<PayPeriod | null>(null);
   const [income, setIncome] = useState(0);
+  const [amountDraftById, setAmountDraftById] = useState<Record<string, string>>({});
+  const [amountOverrideById, setAmountOverrideById] = useState<Record<string, string>>({});
+  const [savingAmountById, setSavingAmountById] = useState<Record<string, boolean>>({});
+  const [amountError, setAmountError] = useState<string | null>(null);
 
   // Fetch available periods
   const { data: periods = [], isLoading: periodsLoading } = useSWR(
@@ -110,6 +149,25 @@ export function BudgetDashboard() {
         : [],
   );
 
+  const { data: periodExpenses = [], isLoading: expensesLoading } = useSWR(
+    selectedPeriod
+      ? [
+          'ledger-expenses',
+          selectedPeriod.year,
+          selectedPeriod.month,
+          selectedPeriod.payPeriod,
+        ]
+      : null,
+    () =>
+      selectedPeriod
+        ? getLedgerExpenses({
+            year: selectedPeriod.year,
+            month: selectedPeriod.month,
+            payPeriod: selectedPeriod.payPeriod,
+          })
+        : [],
+  );
+
   // Separate income rows from budget rows
   const { budgetRows, incomeRows } = useMemo(() => {
     const budget: LedgerRow[] = [];
@@ -135,29 +193,148 @@ export function BudgetDashboard() {
   // Total assigned is the sum of absolute values of all budget row amounts
   const totalAssigned = useMemo(() => {
     return budgetRows.reduce(
-      (sum, row) => sum + Math.abs(parseCurrency(row.amount)),
+      (sum, row) =>
+        sum +
+        Math.abs(parseCurrency(amountOverrideById[row.id] ?? row.amount)),
       0,
     );
-  }, [budgetRows]);
+  }, [amountOverrideById, budgetRows]);
+
+  const expensesByEntryId = useMemo(() => {
+    const totals = new Map<string, number>();
+
+    for (const expense of periodExpenses) {
+      const entryId = expense.zeroBudgetEntryId?.trim();
+      if (!entryId) continue;
+      const next = (totals.get(entryId) ?? 0) + Math.abs(parseCurrency(expense.amount));
+      totals.set(entryId, next);
+    }
+
+    return totals;
+  }, [periodExpenses]);
 
   const handleIncomeChange = useCallback((value: number) => {
     setIncome(value);
   }, []);
 
-  const isLoading = periodsLoading || rowsLoading;
+  const isLoading = periodsLoading || rowsLoading || expensesLoading;
   const periodKey = selectedPeriod ? periodToKey(selectedPeriod) : '';
 
-  function renderCellContent(column: { key: keyof LedgerRow }, row: LedgerRow) {
-    const value = row[column.key];
-    if (column.key === 'status' && value) {
-      return <Badge variant={statusVariant(value)}>{value}</Badge>;
+  function getAmountInputValue(row: LedgerRow): string {
+    if (Object.prototype.hasOwnProperty.call(amountDraftById, row.id)) {
+      return amountDraftById[row.id];
     }
-    if (column.key === 'amount' && value) {
-      const num = parseCurrency(value);
+    const sourceAmount = amountOverrideById[row.id] ?? row.amount;
+    return Math.abs(parseCurrency(sourceAmount)).toFixed(2);
+  }
+
+  async function commitAmount(row: LedgerRow) {
+    const rawValue = getAmountInputValue(row).trim();
+    const parsedAmount = parseCurrencyInput(rawValue);
+    if (rawValue.length === 0 || parsedAmount === null) {
+      setAmountError('Amount must be a number greater than or equal to zero.');
+      return;
+    }
+
+    const normalizedAmount = parsedAmount.toFixed(2);
+    const currentAmount = Math.abs(
+      parseCurrency(amountOverrideById[row.id] ?? row.amount),
+    ).toFixed(2);
+
+    if (normalizedAmount === currentAmount) {
+      setAmountDraftById((prev) => ({ ...prev, [row.id]: normalizedAmount }));
+      return;
+    }
+
+    setAmountError(null);
+    setSavingAmountById((prev) => ({ ...prev, [row.id]: true }));
+
+    try {
+      const updated = await updateBudgetEntry(row.id, {
+        amount: normalizedAmount,
+      });
+      const updatedAmount = Math.abs(parseCurrency(updated.amount)).toFixed(2);
+      setAmountOverrideById((prev) => ({ ...prev, [row.id]: updatedAmount }));
+      setAmountDraftById((prev) => ({ ...prev, [row.id]: updatedAmount }));
+    } catch (error) {
+      setAmountError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to update amount. Please try again.',
+      );
+    } finally {
+      setSavingAmountById((prev) => ({ ...prev, [row.id]: false }));
+    }
+  }
+
+  function renderCellContent(column: { key: BudgetColumnKey }, row: LedgerRow) {
+    const value = row[column.key as keyof LedgerRow];
+    const effectiveAmount = amountOverrideById[row.id] ?? row.amount;
+    const budgetedAmount = Math.abs(parseCurrency(effectiveAmount));
+    const spent = getEntrySpentTotal(row.id, expensesByEntryId);
+    const remaining = budgetedAmount - spent;
+    const computedStatus = getBudgetStatus(remaining);
+
+    if (column.key === 'remaining') {
+      const isZeroRemaining = Math.abs(remaining) <= 0.005;
       return (
-        <span className="tabular-nums font-sans">
-          {usdFormatter.format(Math.abs(num))}
+        <span
+          className={`tabular-nums font-sans ${
+            remaining < -0.005 ? 'text-destructive' : 'text-foreground'
+          }`}
+        >
+          {isZeroRemaining ? '-' : usdFormatter.format(remaining)}
         </span>
+      );
+    }
+    if (column.key === 'status') {
+      return <Badge variant={statusVariant(computedStatus)}>{computedStatus}</Badge>;
+    }
+    if (column.key === 'amount') {
+      const amountInputValue = getAmountInputValue(row);
+      const isSaving = Boolean(savingAmountById[row.id]);
+      return (
+        <div
+          className="flex items-center gap-2"
+          onClick={(event) => {
+            event.stopPropagation();
+          }}
+          onMouseDown={(event) => {
+            event.stopPropagation();
+          }}
+        >
+          <CurrencyInput
+            aria-label={`Edit amount for ${row.category ?? 'budget row'}`}
+            className="text-foreground focus-visible:ring-ring/50 h-auto w-full border-0 bg-transparent p-0 text-sm tabular-nums font-sans outline-none focus-visible:ring-1"
+            decimalsLimit={2}
+            disabled={isSaving}
+            value={amountInputValue}
+            onFocus={(event) => {
+              event.stopPropagation();
+            }}
+            onValueChange={(nextValue) => {
+              setAmountDraftById((prev) => ({
+                ...prev,
+                [row.id]: nextValue ?? '',
+              }));
+            }}
+            onBlur={() => {
+              void commitAmount(row);
+            }}
+            onKeyDown={(event) => {
+              event.stopPropagation();
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                (event.currentTarget as HTMLInputElement).blur();
+              }
+            }}
+          />
+          {isSaving && (
+            <span className="text-muted-foreground shrink-0 text-xs">
+              Saving...
+            </span>
+          )}
+        </div>
       );
     }
     return value ?? '';
@@ -280,9 +457,18 @@ export function BudgetDashboard() {
                     </TableCell>
                     <TableCell>
                       <input
+                        aria-label="Remaining balance"
+                        className="border-input text-muted-foreground h-8 w-full rounded-md border bg-transparent px-2 text-sm outline-none"
+                        placeholder="Auto"
+                        disabled
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <input
                         aria-label="New status"
                         className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-8 w-full rounded-md border bg-transparent px-2 text-sm outline-none focus-visible:ring-2"
-                        placeholder="Status"
+                        placeholder="Auto"
+                        disabled
                       />
                     </TableCell>
                     <TableCell>
@@ -316,10 +502,13 @@ export function BudgetDashboard() {
                     <TableCell className="tabular-nums font-sans font-medium">
                       {usdFormatter.format(totalAssigned)}
                     </TableCell>
-                    <TableCell colSpan={4} />
+                    <TableCell colSpan={budgetColumns.length - 2} />
                   </TableRow>
                 </TableFooter>
               </Table>
+              {amountError && (
+                <p className="text-destructive px-6 pt-3 text-sm">{amountError}</p>
+              )}
             </CardContent>
           </Card>
         </div>

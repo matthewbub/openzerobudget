@@ -1,10 +1,14 @@
 'use client';
 
+import { useState } from 'react';
 import CurrencyInput from 'react-currency-input-field';
 import { RiAddLine } from '@remixicon/react';
-import { type ExpenseRow } from '@/lib/ledger-storage';
+import {
+  createBudgetExpense,
+  updateBudgetExpenseStatus,
+  type ExpenseRow,
+} from '@/lib/ledger-storage';
 import { ChartPieDonutText } from '@/components/budget/chart-pie-donut-text';
-import { Badge } from '@/components/ui/badge';
 import {
   Card,
   CardContent,
@@ -24,7 +28,10 @@ import {
 type BudgetExpensesPanelProps = {
   budgetedAmount: number;
   ledgerCategory: string | null;
+  entryId?: string | null;
   rows: ExpenseRow[];
+  onExpenseCreated?: (expense: ExpenseRow) => void;
+  onExpenseUpdated?: (expense: ExpenseRow) => void;
 };
 
 function formatDate(value: string) {
@@ -39,10 +46,21 @@ function formatDate(value: string) {
   });
 }
 
-function parseCurrencyAmount(value: string): number {
+function parseCurrencyAmount(value: string | null | undefined): number {
+  if (!value) {
+    return 0;
+  }
   const normalized = value.replace(/[^0-9.-]/g, '');
   const parsed = Number.parseFloat(normalized);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getTodayDateInput(): string {
+  const now = new Date();
+  const year = String(now.getFullYear());
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 const usdFormatter = new Intl.NumberFormat('en-US', {
@@ -50,19 +68,117 @@ const usdFormatter = new Intl.NumberFormat('en-US', {
   currency: 'USD',
 });
 
-function statusVariant(status: string) {
-  const s = status.toLowerCase();
-  if (s === 'paid' || s === 'cleared') return 'default' as const;
-  if (s === 'pending') return 'secondary' as const;
-  return 'outline' as const;
-}
+const expenseStatusOptions = ['Pending', 'Paid', 'Cleared'] as const;
 
-function BudgetExpensesPanel({ budgetedAmount, ledgerCategory, rows }: BudgetExpensesPanelProps) {
+function BudgetExpensesPanel({
+  budgetedAmount,
+  ledgerCategory,
+  entryId,
+  rows,
+  onExpenseCreated,
+  onExpenseUpdated,
+}: BudgetExpensesPanelProps) {
   const hasCategory = Boolean(ledgerCategory && ledgerCategory.trim());
+  const canSaveInThisView = Boolean(entryId && onExpenseCreated);
+
+  const [amountInput, setAmountInput] = useState('');
+  const [dateInput, setDateInput] = useState('');
+  const [statusInput, setStatusInput] = useState('');
+  const [notesInput, setNotesInput] = useState('');
+  const [bankInput, setBankInput] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [updatingStatusById, setUpdatingStatusById] = useState<Record<string, boolean>>({});
+
   const totalAmount = rows.reduce(
     (sum, row) => sum + parseCurrencyAmount(row.amount),
     0,
   );
+  const addButtonDisabled = isSubmitting || !hasCategory || !canSaveInThisView;
+
+  async function handleAddExpense() {
+    if (!hasCategory) {
+      setSubmitError('This budget row has no category, so expenses cannot be added.');
+      return;
+    }
+
+    if (!entryId || !onExpenseCreated) {
+      setSubmitError('Expense saving is unavailable in this view.');
+      return;
+    }
+
+    const amountNumber = parseCurrencyAmount(amountInput);
+    if (amountNumber <= 0) {
+      setSubmitError('Amount must be greater than zero.');
+      return;
+    }
+
+    const trimmedStatus = statusInput.trim();
+    if (!trimmedStatus) {
+      setSubmitError('Status is required.');
+      return;
+    }
+
+    const dateSpent = dateInput || getTodayDateInput();
+
+    setIsSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      const expense = await createBudgetExpense(entryId, {
+        amount: amountNumber.toFixed(2),
+        dateSpent,
+        status: trimmedStatus,
+        notes: notesInput.trim(),
+        bank: bankInput.trim(),
+      });
+
+      onExpenseCreated(expense);
+      setAmountInput('');
+      setDateInput('');
+      setStatusInput('');
+      setNotesInput('');
+      setBankInput('');
+    } catch (error) {
+      setSubmitError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to save expense. Please try again.',
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleStatusUpdate(row: ExpenseRow, nextStatus: string) {
+    if (!onExpenseUpdated || nextStatus === row.status) {
+      return;
+    }
+
+    setUpdatingStatusById((previous) => ({
+      ...previous,
+      [row.id]: true,
+    }));
+    setSubmitError(null);
+
+    try {
+      const updatedExpense = await updateBudgetExpenseStatus(row.id, {
+        status: nextStatus,
+      });
+      onExpenseUpdated(updatedExpense);
+    } catch (error) {
+      setSubmitError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to update expense status. Please try again.',
+      );
+    } finally {
+      setUpdatingStatusById((previous) => ({
+        ...previous,
+        [row.id]: false,
+      }));
+    }
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -90,7 +206,7 @@ function BudgetExpensesPanel({ budgetedAmount, ledgerCategory, rows }: BudgetExp
               </p>
             )}
 
-            <Table>
+            <Table className="w-max min-w-full">
               <TableHeader>
                 <TableRow>
                   <TableHead>Amount</TableHead>
@@ -98,7 +214,7 @@ function BudgetExpensesPanel({ budgetedAmount, ledgerCategory, rows }: BudgetExp
                   <TableHead>Status</TableHead>
                   <TableHead>Notes</TableHead>
                   <TableHead>Bank</TableHead>
-                  <TableHead className="w-10">
+                  <TableHead className="bg-muted sticky right-0 z-20 w-10 min-w-10 border-l">
                     <span className="sr-only">Action</span>
                   </TableHead>
                 </TableRow>
@@ -120,13 +236,27 @@ function BudgetExpensesPanel({ budgetedAmount, ledgerCategory, rows }: BudgetExp
                         {formatDate(row.dateSpent)}
                       </TableCell>
                       <TableCell>
-                        <Badge variant={statusVariant(row.status)}>{row.status}</Badge>
+                        <select
+                          aria-label={`Expense status for ${row.id}`}
+                          className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-8 w-[140px] min-w-[140px] rounded-md border bg-transparent px-2 text-sm outline-none focus-visible:ring-2"
+                          value={row.status}
+                          disabled={!onExpenseUpdated || updatingStatusById[row.id]}
+                          onChange={(event) => {
+                            void handleStatusUpdate(row, event.target.value);
+                          }}
+                        >
+                          {expenseStatusOptions.map((statusOption) => (
+                            <option key={statusOption} value={statusOption}>
+                              {statusOption}
+                            </option>
+                          ))}
+                        </select>
                       </TableCell>
                       <TableCell className="text-muted-foreground max-w-[200px] truncate">
                         {row.notes || '-'}
                       </TableCell>
                       <TableCell className="text-muted-foreground">{row.bank}</TableCell>
-                      <TableCell />
+                      <TableCell className="bg-muted sticky right-0 z-10 border-l" />
                     </TableRow>
                   ))
                 )}
@@ -136,49 +266,84 @@ function BudgetExpensesPanel({ budgetedAmount, ledgerCategory, rows }: BudgetExp
                   <TableCell>
                     <CurrencyInput
                       aria-label="New expense amount"
-                      className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-8 w-full rounded-md border bg-transparent px-2 text-sm outline-none focus-visible:ring-2"
+                      className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-8 w-[130px] min-w-[130px] rounded-md border bg-transparent px-2 text-sm outline-none focus-visible:ring-2"
                       decimalsLimit={2}
                       placeholder="Amount"
+                      value={amountInput}
+                      onValueChange={(value) => {
+                        setAmountInput(value ?? '');
+                      }}
                     />
                   </TableCell>
                   <TableCell>
                     <input
                       aria-label="New expense date"
-                      className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-8 w-full rounded-md border bg-transparent px-2 text-sm outline-none focus-visible:ring-2"
+                      className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-8 w-[190px] min-w-[190px] rounded-md border bg-transparent px-2 text-sm outline-none focus-visible:ring-2"
                       type="date"
+                      value={dateInput}
+                      onChange={(event) => {
+                        setDateInput(event.target.value);
+                      }}
                     />
                   </TableCell>
                   <TableCell>
-                    <input
+                    <select
                       aria-label="New expense status"
-                      className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-8 w-full rounded-md border bg-transparent px-2 text-sm outline-none focus-visible:ring-2"
-                      placeholder="Status"
-                    />
+                      className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-8 w-[140px] min-w-[140px] rounded-md border bg-transparent px-2 text-sm outline-none focus-visible:ring-2"
+                      value={statusInput}
+                      onChange={(event) => {
+                        setStatusInput(event.target.value);
+                      }}
+                    >
+                      <option value="">Select status</option>
+                      {expenseStatusOptions.map((statusOption) => (
+                        <option key={statusOption} value={statusOption}>
+                          {statusOption}
+                        </option>
+                      ))}
+                    </select>
                   </TableCell>
                   <TableCell>
                     <input
                       aria-label="New expense notes"
-                      className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-8 w-full rounded-md border bg-transparent px-2 text-sm outline-none focus-visible:ring-2"
+                      className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-8 w-[180px] min-w-[180px] rounded-md border bg-transparent px-2 text-sm outline-none focus-visible:ring-2"
                       placeholder="Notes"
+                      value={notesInput}
+                      onChange={(event) => {
+                        setNotesInput(event.target.value);
+                      }}
                     />
                   </TableCell>
                   <TableCell>
                     <input
                       aria-label="New expense bank"
-                      className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-8 w-full rounded-md border bg-transparent px-2 text-sm outline-none focus-visible:ring-2"
+                      className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-8 w-[120px] min-w-[120px] rounded-md border bg-transparent px-2 text-sm outline-none focus-visible:ring-2"
                       placeholder="Bank"
+                      value={bankInput}
+                      onChange={(event) => {
+                        setBankInput(event.target.value);
+                      }}
                     />
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="bg-background sticky right-0 z-20 border-l">
                     <button
                       aria-label="Add expense row"
                       className="border-input text-foreground hover:bg-muted focus-visible:border-ring focus-visible:ring-ring/50 inline-flex h-8 w-8 items-center justify-center rounded-md border bg-transparent outline-none focus-visible:ring-2"
                       type="button"
+                      disabled={addButtonDisabled}
+                      onClick={handleAddExpense}
                     >
                       <RiAddLine aria-hidden className="size-4" />
                     </button>
                   </TableCell>
                 </TableRow>
+                {submitError && (
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell className="text-destructive text-sm" colSpan={6}>
+                      {submitError}
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
               <TableFooter>
                 <TableRow>

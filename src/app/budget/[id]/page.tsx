@@ -209,7 +209,18 @@ export default function BudgetDetailPage() {
           <BudgetExpensesPanel
             budgetedAmount={budgetedAmount}
             ledgerCategory={row.category}
+            entryId={row.id}
             rows={expenses}
+            onExpenseCreated={(expense) => {
+              setExpenses((previous) => [...previous, expense]);
+            }}
+            onExpenseUpdated={(updatedExpense) => {
+              setExpenses((previous) =>
+                previous.map((expense) =>
+                  expense.id === updatedExpense.id ? updatedExpense : expense,
+                ),
+              );
+            }}
           />
         </div>
       )}
